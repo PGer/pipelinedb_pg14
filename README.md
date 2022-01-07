@@ -1,9 +1,9 @@
-# PostgreSQL 14 support
-I modified some codes to make it compile and pass on PostgreSQL 14
-
 PipelineDB [has joined Confluent](https://www.confluent.io/blog/pipelinedb-team-joins-confluent), read the blog post [here](https://www.pipelinedb.com/blog/pipelinedb-is-joining-confluent).
 
 PipelineDB will not have new releases beyond `1.0.0`, although critical bugs will still be fixed.
+
+# PostgreSQL 14 support
+I modified some codes to make it compile and pass on PostgreSQL 14
 
 # PipelineDB
 
