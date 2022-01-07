@@ -15,6 +15,7 @@
 #include "miscadmin.h"
 #include "pzmq.h"
 #include "utils/hsearch.h"
+#include "common/hashfn.h"
 #include "utils/memutils.h"
 
 #define ERRNO_IS_SAFE() (errno == EINTR || errno == EAGAIN || !errno)
@@ -136,13 +137,13 @@ pzmq_bind(uint64 id)
 
 	optval = zmq_state->hwm;
 	if (zmq_setsockopt(zsock->sock, ZMQ_RCVHWM, &optval, sizeof(int)) != 0)
-		elog(WARNING, "pzmq_bind failed to set rcvhwm: %s", zmq_strerror(errno));
+		fprintf(stderr, "pzmq_bind failed to set rcvhwm: %s", zmq_strerror(errno));
 
 	if (zmq_bind(zsock->sock, zsock->addr) != 0)
 	{
 		zmq_close(zsock->sock);
 		pfree(zsock);
-		elog(ERROR, "pzmq_bind failed: %s", zmq_strerror(errno));
+		fprintf(stderr, "pzmq_bind failed: %s", zmq_strerror(errno));
 	}
 
 	MemoryContextSwitchTo(old);
@@ -174,33 +175,33 @@ pzmq_connect(uint64 id)
 
 		optval = zmq_state->hwm;
 		if (zmq_setsockopt(zsock->sock, ZMQ_SNDHWM, &optval, sizeof(int)) != 0)
-			elog(WARNING, "pzmq_connect failed to set sndhwm: %s", zmq_strerror(errno));
+			fprintf(stderr, "pzmq_connect failed to set sndhwm: %s", zmq_strerror(errno));
 
 		if (zmq_state->enqueue)
 		{
 			/* Enqueue messages immediately, even if the connection isn't ready yet */
 			optval = 1;
 			if (zmq_setsockopt(zsock->sock, ZMQ_IMMEDIATE, &optval, sizeof(int)) != 0)
-				elog(WARNING, "pzmq_connect failed to set immediate: %s", zmq_strerror(errno));
+				fprintf(stderr, "pzmq_connect failed to set immediate: %s", zmq_strerror(errno));
 
 			/* Leave messages in memory until they're consumed */
 			optval = -1;
 			if (zmq_setsockopt(zsock->sock, ZMQ_LINGER, &optval, sizeof(int)) != 0)
-				elog(WARNING, "pzmq_connect failed to set linger: %s", zmq_strerror(errno));
+				fprintf(stderr, "pzmq_connect failed to set linger: %s", zmq_strerror(errno));
 		}
 		else
 		{
 			/* We're a CQ process, don't attempt to send messages if the connection isn't ready yet */
 			optval = 0;
 			if (zmq_setsockopt(zsock->sock, ZMQ_LINGER, &optval, sizeof(int)) != 0)
-				elog(WARNING, "pzmq_connect failed to set linger: %s", zmq_strerror(errno));
+				fprintf(stderr, "pzmq_connect failed to set linger: %s", zmq_strerror(errno));
 		}
 
 		if (zmq_connect(zsock->sock, zsock->addr) != 0)
 		{
 			zmq_close(zsock->sock);
 			hash_search(zmq_state->dests, &id, HASH_REMOVE, &found);
-			elog(ERROR, "pzmq_connect failed: %s", zmq_strerror(errno));
+			fprintf(stderr, "pzmq_connect failed: %s", zmq_strerror(errno));
 		}
 	}
 }
@@ -228,7 +229,7 @@ pzmq_poll(int timeout)
 	rc = zmq_poll(&item, 1, timeout);
 
 	if (rc == -1 && !ERRNO_IS_SAFE())
-		elog(ERROR, "pzmq failed to pollin: %s", zmq_strerror(errno));
+		fprintf(stderr, "pzmq failed to pollin: %s", zmq_strerror(errno));
 
 	return item.revents & ZMQ_POLLIN;
 }
@@ -258,7 +259,7 @@ pzmq_recv(int *len, int timeout)
 	if (ret == -1)
 	{
 		if (!ERRNO_IS_SAFE())
-			elog(ERROR, "pzmq failed to recv msg: %s %d", zmq_strerror(errno), errno);
+			fprintf(stderr, "pzmq failed to recv msg: %s %d", zmq_strerror(errno), errno);
 
 		*len = 0;
 		return NULL;
@@ -296,7 +297,7 @@ pzmq_send(uint64 id, char *msg, int len, bool wait)
 	if (ret == -1)
 	{
 		if (!ERRNO_IS_SAFE())
-			elog(ERROR, "pzmq failed to send msg: %s", zmq_strerror(errno));
+			fprintf(stderr, "pzmq failed to send msg: %s", zmq_strerror(errno));
 
 		return false;
 	}

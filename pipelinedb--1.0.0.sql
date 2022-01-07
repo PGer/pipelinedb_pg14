@@ -34,12 +34,12 @@ CREATE TABLE pipelinedb.cont_query (
   -- Valid for transforms only
   tgnargs int2,
   tgargs bytea
-) WITH OIDS;
+) WITHOUT OIDS;
 
 CREATE UNIQUE INDEX pipeline_cont_query_relid_index ON pipelinedb.cont_query (relid);
 CREATE UNIQUE INDEX pipeline_cont_query_defrelid_index ON pipelinedb.cont_query (defrelid);
 CREATE UNIQUE INDEX pipeline_cont_query_id_index ON pipelinedb.cont_query (id);
-CREATE UNIQUE INDEX pipeline_cont_query_oid_index ON pipelinedb.cont_query (oid);
+-- CREATE UNIQUE INDEX pipeline_cont_query_oid_index ON pipelinedb.cont_query (oid);
 CREATE UNIQUE INDEX pipeline_cont_query_matrelid_index ON pipelinedb.cont_query (matrelid);
 CREATE UNIQUE INDEX pipeline_cont_query_osrelid_index ON pipelinedb.cont_query (osrelid);
 
@@ -51,10 +51,10 @@ CREATE INDEX pipeline_cont_query_lookupidxid_index ON pipelinedb.cont_query (loo
 CREATE TABLE pipelinedb.stream (
   relid oid NOT NULL,
   queries bytea
-) WITH OIDS;
+) WITHOUT OIDS;
 
 CREATE UNIQUE INDEX pipeline_stream_relid_index ON pipelinedb.stream (relid);
-CREATE UNIQUE INDEX pipeline_stream_oid_index ON pipelinedb.stream (oid);
+-- CREATE UNIQUE INDEX pipeline_stream_oid_index ON pipelinedb.stream (oid);
 
 CREATE TABLE pipelinedb.combine (
   aggfn oid,
@@ -122,7 +122,7 @@ LANGUAGE C IMMUTABLE;
 CREATE AGGREGATE combine(anyelement) (
   sfunc = combine_trans_dummy,
   stype = anyelement,
-  initcond = 'combine_dummy',
+  initcond = '0',
   parallel = safe
 );
 

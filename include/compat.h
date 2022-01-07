@@ -12,12 +12,13 @@
 #include "catalog/objectaddress.h"
 #include "executor/tuptable.h"
 #include "nodes/execnodes.h"
-#include "nodes/relation.h"
+//#include "nodes/relation.h"
+#include "optimizer/pathnode.h"
 
 #if (PG_VERSION_NUM < 110000)
 #define PIPELINE_COMPAT_INDEX_ATTR_BITMAP_ALL INDEX_ATTR_BITMAP_ALL
 #else
-#define PIPELINE_COMPAT_INDEX_ATTR_BITMAP_ALL INDEX_ATTR_BITMAP_HOT
+#define PIPELINE_COMPAT_INDEX_ATTR_BITMAP_ALL INDEX_ATTR_BITMAP_ALL
 #endif
 
 extern bool CompatProcOidIsAgg(Oid oid);
@@ -44,6 +45,7 @@ CompatBuildTupleHashTable(TupleDesc inputDesc,
 					Oid *eqfuncs,
 #endif
 					FmgrInfo *hashfunctions,
+					Oid *collations,
 					long nbuckets, Size additionalsize,
 					MemoryContext tablecxt,
 					MemoryContext tempcxt, bool use_variable_hash_iv);

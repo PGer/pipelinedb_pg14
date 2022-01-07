@@ -10,6 +10,8 @@
 
 #include "access/htup_details.h"
 #include "access/xact.h"
+#include "access/relation.h"
+#include "access/table.h"
 #include "pipeline_query.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
@@ -98,8 +100,7 @@ init_query_state(ContExecutor *exec, ContQueryState *base)
 	/* Each plan execution's output on a microbatch is buffered in a tuplestore */
 	state->dest = CreateDestReceiver(DestTuplestore);
 	state->plan_output = tuplestore_begin_heap(false, false, continuous_query_batch_mem);
-	SetTuplestoreDestReceiverParams(state->dest, state->plan_output, CurrentMemoryContext, false);
-
+	SetTuplestoreDestReceiverParams(state->dest, state->plan_output, CurrentMemoryContext, false, NULL, NULL);
 	/*
 	 * Now create the receivers, which send the buffered plan output down the processing pipeline
 	 */
@@ -153,7 +154,7 @@ init_query_state(ContExecutor *exec, ContQueryState *base)
 				/* matrel has been dropped */
 				base->query = NULL;
 				CQMatRelClose(ri);
-				heap_close(matrel, NoLock);
+				table_close(matrel, NoLock);
 				return base;
 			}
 
@@ -162,10 +163,10 @@ init_query_state(ContExecutor *exec, ContQueryState *base)
 		}
 
 		CQMatRelClose(ri);
-		heap_close(matrel, NoLock);
+		table_close(matrel, NoLock);
 	}
 
-	state->query_desc->estate->es_lastoid = InvalidOid;
+	//state->query_desc->estate->es_lastoid = InvalidOid;
 
 	(*state->dest->rStartup) (state->dest, state->query_desc->operation, state->query_desc->tupDesc);
 
@@ -208,11 +209,11 @@ init_plan(ContQueryWorkerState *state)
 
 	query_desc->estate->es_plannedstmt = query_desc->plannedstmt;
 
+	ExecInitRangeTable(query_desc->estate, query_desc->plannedstmt->rtable);
 	foreach(lc, query_desc->plannedstmt->subplans)
 	{
 		Plan *subplan = (Plan *) lfirst(lc);
 		PlanState  *subplanstate;
-
 		subplanstate = ExecInitNode(subplan, query_desc->estate, PIPELINE_EXEC_CONTINUOUS);
 		query_desc->estate->es_subplanstates = lappend(query_desc->estate->es_subplanstates, subplanstate);
 	}
@@ -220,7 +221,8 @@ init_plan(ContQueryWorkerState *state)
 	query_desc->planstate = ExecInitNode(plan, query_desc->estate, PIPELINE_EXEC_CONTINUOUS);
 	query_desc->tupDesc = ExecGetResultType(query_desc->planstate);
 
-	state->result_slot = MakeSingleTupleTableSlot(query_desc->tupDesc);
+	state->result_slot = MakeSingleTupleTableSlot(query_desc->tupDesc, &TTSOpsHeapTuple);
+elog(LOG, "worker.c 001");
 	tuplestore_clear(state->plan_output);
 }
 
@@ -240,6 +242,7 @@ end_plan(QueryDesc *query_desc)
 	}
 
 	query_desc->planstate = NULL;
+	ExecCloseRangeTableRelations(query_desc->estate);
 }
 
 /*

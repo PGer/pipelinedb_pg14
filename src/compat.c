@@ -13,6 +13,7 @@
 #include "access/htup.h"
 #include "access/htup_details.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_collation.h"
 #include "compat.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
@@ -116,6 +117,7 @@ CompatBuildTupleHashTable(TupleDesc desc,
 					Oid *eqfuncs,
 #endif
 					FmgrInfo *hashfunctions,
+					Oid *collations,
 					long nbuckets, Size additionalsize,
 					MemoryContext tablecxt,
 					MemoryContext tempcxt, bool use_variable_hash_iv)
@@ -127,7 +129,7 @@ CompatBuildTupleHashTable(TupleDesc desc,
 	{
 		PlanState *parent = makeNode(PlanState);
 		parent->state = CreateExecutorState();
-		return BuildTupleHashTable(parent, desc, numCols, keyColIdx, eqfuncs, hashfunctions, nbuckets,
+		return BuildTupleHashTable(parent, desc, numCols, keyColIdx, eqfuncs, hashfunctions, collations, nbuckets,
 				additionalsize, tablecxt, tempcxt, use_variable_hash_iv);
 	}
 #endif
@@ -172,6 +174,6 @@ ComaptExecAssignResultTypeFromTL(PlanState *ps)
 #if (PG_VERSION_NUM < 110000)
 	ExecAssignResultTypeFromTL(ps);
 #else
-	ExecInitResultTupleSlotTL(ps->state, ps);
+	ExecInitResultTupleSlotTL(ps, &TTSOpsVirtual);
 #endif
 }

@@ -11,6 +11,7 @@
 #include "postgres.h"
 #include "access/htup_details.h"
 #include "access/xact.h"
+#include "access/table.h"
 #include "catalog.h"
 #include "executor/spi.h"
 #include "executor/tstoreReceiver.h"
@@ -95,7 +96,7 @@ DeleteTTLExpiredRows(RangeVar *cvname, RangeVar *matrel)
 	int num_deleted = 0;
 
 	/* We need to lock the relation to prevent it from being dropped before we run the DELETE */
-	Relation rel = heap_openrv_extended(matrel, AccessShareLock, true);
+	Relation rel = table_openrv_extended(matrel, AccessShareLock, true);
 
 	if (!rel)
 		return 0;
@@ -122,7 +123,7 @@ DeleteTTLExpiredRows(RangeVar *cvname, RangeVar *matrel)
 	PopActiveSnapshot();
 	matrels_writable = save_matrels_writable;
 
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	return num_deleted;
 }

@@ -9,6 +9,7 @@
 #include "postgres.h"
 
 #include "access/heapam.h"
+#include "access/table.h"
 #include "analyzer.h"
 #include "matrel.h"
 #include "nodes/execnodes.h"
@@ -88,7 +89,7 @@ create_tuplestore_scan_plan(PlannerInfo *root, RelOptInfo *rel, struct CustomPat
 	CustomScan *scan = makeNode(CustomScan);
 	Plan *plan = &scan->scan.plan;
 	ContQuery *cv = GetContViewForId(QueryGetContQueryId(root->parse));
-	Relation matrel = heap_open(cv->matrelid, NoLock);
+	Relation matrel = table_open(cv->matrelid, NoLock);
 	TupleDesc desc = RelationGetDescr(matrel);
 	AttrNumber attrno;
 	Index groupref[desc->natts];
@@ -157,7 +158,7 @@ create_tuplestore_scan_plan(PlannerInfo *root, RelOptInfo *rel, struct CustomPat
 		}
 	}
 
-	heap_close(matrel, NoLock);
+	table_close(matrel, NoLock);
 
 	plan->targetlist = tlist;
 	scan->custom_scan_tlist = tlist;

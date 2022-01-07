@@ -225,7 +225,7 @@ ipc_tuple_reader_ack(void)
 static inline ipc_tuple *
 read_from_next_batch(Oid query_id)
 {
-	my_rscan.batch = lnext(my_rscan.batch);
+	my_rscan.batch = lnext(my_reader->batches, my_rscan.batch);
 	my_rscan.tup_idx = -1;
 	return ipc_tuple_reader_next(query_id);
 }

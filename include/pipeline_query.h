@@ -18,6 +18,7 @@
 #include "parser/parse_node.h"
 #include "storage/lockdefs.h"
 #include "utils/relcache.h"
+#include "utils/queryjumble.h"
 
 typedef struct FormData_pipeline_query
 {
@@ -243,10 +244,12 @@ extern void ClosePipelineQuery(Relation rel, LOCKMODE mode);
 extern void FinalizeOverlayStmtAggregates(SelectStmt *overlay, Query *worker_query);
 extern void AnalyzeCreateViewForTransform(ViewStmt *stmt);
 extern void AnalyzeDumped(ViewStmt *stmt);
-extern void PostParseAnalyzeHook(ParseState *pstate, Query *query);
+extern void PostParseAnalyzeHook(ParseState *pstate, Query *query, JumbleState *jstate);
 
 extern void RangeVarGetTTLInfo(RangeVar *cvname, char **ttl_col, int *ttl);
 
 extern Oid GetTriggerFnOid(Oid defrelid);
+
+extern char *float8out_internal(double num);
 
 #endif

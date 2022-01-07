@@ -8,6 +8,8 @@
 #include "postgres.h"
 
 #include "analyzer.h"
+#include "access/relation.h"
+#include "access/table.h"
 #include "catalog.h"
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_proc.h"
@@ -24,7 +26,7 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/planner.h"
-#include "optimizer/var.h"
+#include "optimizer/optimizer.h"
 #include "parser/analyze.h"
 #include "parser/parsetree.h"
 #include "physical_group_lookup.h"
@@ -204,7 +206,7 @@ get_plan_from_stmt(Oid id, RawStmt *node, const char *sql, bool is_combine, bool
 	if (rewrite_combines)
 		RewriteCombineAggs(query);
 
-	plan = pg_plan_query(query, 0, NULL);
+	plan = pg_plan_query(query, sql, 0, NULL);
 
 	return plan;
 }
@@ -513,7 +515,7 @@ add_physical_group_lookup_join_path(PlannerInfo *root, RelOptInfo *joinrel, RelO
  * GetGroupsLookupPlan
  */
 PlannedStmt *
-GetGroupsLookupPlan(Query *query)
+GetGroupsLookupPlan(Query *query, ParseState *pstate)
 {
 	PlannedStmt *plan;
 	set_join_pathlist_hook_type save_join_hook = set_join_pathlist_hook;
@@ -529,7 +531,7 @@ GetGroupsLookupPlan(Query *query)
 		set_join_pathlist_hook = add_physical_group_lookup_join_path;
 
 		PushActiveSnapshot(GetTransactionSnapshot());
-		plan = pg_plan_query(query, 0, NULL);
+		plan = pg_plan_query(query, pstate->p_sourcetext, 0, NULL);
 		PopActiveSnapshot();
 
 		set_join_pathlist_hook = save_join_hook;
@@ -603,7 +605,7 @@ CreateEState(QueryDesc *query_desc)
 		RegisterSnapshot(query_desc->crosscheck_snapshot);
 	estate->es_instrument = query_desc->instrument_options;
 	estate->es_range_table = query_desc->plannedstmt->rtable;
-	estate->es_lastoid = InvalidOid;
+	//estate->es_lastoid = InvalidOid;
 	estate->es_processed = 0;
 
 	CompatPrepareEState(query_desc->plannedstmt, estate);
@@ -738,7 +740,7 @@ check_matrels_writable(Query *q)
 		if (!MatRelWritable() && RelidIsMatRel(rte->relid, NULL))
 		{
 			RangeVar *cv;
-			Relation rel = heap_open(rte->relid, NoLock);
+			Relation rel = table_open(rte->relid, NoLock);
 			RangeVar *matrel = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)), RelationGetRelationName(rel), -1);
 
 			relation_close(rel, NoLock);
@@ -757,7 +759,7 @@ check_matrels_writable(Query *q)
  * PipelinePlanner
  */
 PlannedStmt *
-PipelinePlanner(Query *parse, int options, ParamListInfo params)
+PipelinePlanner(Query *parse, const char *query_string, int options, ParamListInfo params)
 {
 	PlannedStmt *result;
 
@@ -774,9 +776,9 @@ PipelinePlanner(Query *parse, int options, ParamListInfo params)
 	}
 
 	if (save_planner_hook)
-		result = (*save_planner_hook) (parse, options, params);
+		result = (*save_planner_hook) (parse, query_string, options, params);
 	else
-		result = standard_planner(parse, options, params);
+		result = standard_planner(parse, query_string, options, params);
 
 	return result;
 }

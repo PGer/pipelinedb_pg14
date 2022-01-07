@@ -19,7 +19,7 @@ extern bool debug_simulate_continuous_query;
 extern void InstallPlannerHooks(void);
 
 extern PlannedStmt *GetContPlan(ContQuery *view, ContQueryProcType type);
-extern PlannedStmt *GetGroupsLookupPlan(Query *query);
+extern PlannedStmt *GetGroupsLookupPlan(Query *query, ParseState *pstate);
 extern CustomScan *SetCombinerPlanTuplestorestate(PlannedStmt *plan, Tuplestorestate *tupstore);
 extern FuncExpr *GetGroupHashIndexExpr(ResultRelInfo *ri);
 extern PlannedStmt *GetCombinerLookupPlan(ContQuery *view);
@@ -31,6 +31,6 @@ extern EState *CreateEState(QueryDesc *query_desc);
 extern void SetEStateSnapshot(EState *estate);
 extern void UnsetEStateSnapshot(EState *estate);
 
-extern PlannedStmt *PipelinePlanner(Query *parse, int cursorOptions, ParamListInfo boundParams);
+extern PlannedStmt *PipelinePlanner(Query *parse, const char *query_string, int cursorOptions, ParamListInfo boundParams);
 
 #endif

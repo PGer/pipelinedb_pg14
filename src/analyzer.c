@@ -13,6 +13,7 @@
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
+#include "access/table.h"
 #include "catalog.h"
 #include "compat.h"
 #include "config.h"
@@ -28,7 +29,8 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/primnodes.h"
 #include "optimizer/planner.h"
-#include "optimizer/var.h"
+//#include "optimizer/var.h"
+#include "optimizer/optimizer.h"
 #include "rewrite/rewriteHandler.h"
 #include "parser/analyze.h"
 #include "parser/parse_clause.h"
@@ -222,14 +224,14 @@ has_clock_timestamp(Node *node, void *context)
 static bool
 col_has_index(RangeVar *rv, ColumnRef *col)
 {
-	Relation rel = heap_openrv(rv, NoLock);
+	Relation rel = table_openrv(rv, NoLock);
 	Bitmapset *indexed = RelationGetIndexAttrBitmap(rel, PIPELINE_COMPAT_INDEX_ATTR_BITMAP_ALL);
 	TupleDesc desc = RelationGetDescr(rel);
 	char *table;
 	char *colname;
 	int i;
 
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 	DeconstructQualifiedName(col->fields, &table, &colname);
 
 	for (i=0; i<desc->natts; i++)
@@ -820,8 +822,8 @@ rewrite_from_clause(Node *from)
 		 rv = makeRangeVarFromNameList(textToQualifiedNameList((text *) CStringGetTextDatum(cv_name)));
 
 		 /* Just fail if the target CV doesn't exist */
-		 cvrel = heap_openrv(rv, NoLock);
-		 heap_close(cvrel, NoLock);
+		 cvrel = table_openrv(rv, NoLock);
+		 table_close(cvrel, NoLock);
 
 		 rv->relname = CVNameToOSRelName(rv->relname);
 		 new_from = (Node *) rv;
@@ -880,7 +882,7 @@ collect_agg_funcs(Node *node, ContAnalyzeContext *context)
 
 		if (!is_agg)
 		{
-			clist = FuncnameGetCandidates(func->funcname, list_length(func->args), NIL, true, false, true);
+			clist = FuncnameGetCandidates(func->funcname, list_length(func->args), NIL, true, false, false, true);
 			while (clist)
 			{
 				is_agg = CompatProcOidIsAgg(clist->oid);
@@ -1288,7 +1290,7 @@ ValidateParsedContQuery(RangeVar *name, Node *node, const char *sql)
 		ColumnRef *cref = lfirst(lc);
 		char *qualname = NameListToString(cref->fields);
 
-		if (IsA(lfirst(cref->fields->tail), A_Star))
+		if (IsA(lfirst(list_tail(cref->fields)), A_Star))
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_AMBIGUOUS_COLUMN),
@@ -1494,7 +1496,7 @@ GetSWTimeColumn(RangeVar *rv)
 	Form_pg_attribute attr;
 
 	view = RangeVarGetContView(rv);
-	rel = heap_open(view->matrelid, AccessShareLock);
+	rel = table_open(view->matrelid, AccessShareLock);
 	desc = RelationGetDescr(rel);
 
 	Assert(AttributeNumberIsValid(view->sw_attno));
@@ -1503,7 +1505,7 @@ GetSWTimeColumn(RangeVar *rv)
 	col = makeNode(ColumnRef);
 	col->fields = list_make1(makeString(pstrdup(NameStr(attr->attname))));
 
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	return col;
 }
@@ -1851,7 +1853,7 @@ FindSWTimeColumnAttrNo(SelectStmt *viewselect, Oid matrelid, int *ttl, char **tt
 	Assert(list_length(context.cols) == 1);
 	colname = FigureColname(linitial(context.cols));
 
-	rel = heap_open(matrelid, AccessShareLock);
+	rel = table_open(matrelid, AccessShareLock);
 	desc = RelationGetDescr(rel);
 
 	for (i = 0; i < desc->natts; i++)
@@ -1865,7 +1867,7 @@ FindSWTimeColumnAttrNo(SelectStmt *viewselect, Oid matrelid, int *ttl, char **tt
 		}
 	}
 
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	Assert(AttributeNumberIsValid(attno));
 
@@ -1904,7 +1906,7 @@ FindTTLColumnAttrNo(char *colname, Oid matrelid)
 	if (!colname)
 		return InvalidAttrNumber;
 
-	rel = heap_open(matrelid, AccessShareLock);
+	rel = table_open(matrelid, AccessShareLock);
 	desc = RelationGetDescr(rel);
 
 	for (i = 0; i < desc->natts; i++)
@@ -1917,7 +1919,7 @@ FindTTLColumnAttrNo(char *colname, Oid matrelid)
 		}
 	}
 
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	Assert(AttributeNumberIsValid(attno));
 	return attno;
@@ -3453,7 +3455,7 @@ make_finalize_call(Aggref *agg, ColumnRef *cref)
 		argtypes = get_agg_arg_typenames(agg->aggfnoid);
 
 		finalizeargs = list_make4(agg_name, argtypes, cref, type_arg);
-		finalize = makeFuncCall(list_make2(makeString(PIPELINEDB_EXTENSION_NAME), makeString("finalize")), finalizeargs, -1);
+		finalize = makeFuncCall(list_make2(makeString(PIPELINEDB_EXTENSION_NAME), makeString("finalize")), finalizeargs, COERCE_EXPLICIT_CALL, -1);
 
 		ReleaseSysCache(tup);
 
@@ -3492,7 +3494,7 @@ make_finalize_call(Aggref *agg, ColumnRef *cref)
 		args = lappend(args, tc);
 	}
 
-	result = makeFuncCall(name, args, -1);
+	result = makeFuncCall(name, args, COERCE_EXPLICIT_CALL, -1);
 
 	ReleaseSysCache(tup);
 
@@ -3682,10 +3684,10 @@ FinalizeOverlayStmtAggregates(SelectStmt *overlay, Query *worker_query)
  * PostParseAnalyzeHook
  */
 void
-PostParseAnalyzeHook(ParseState *pstate, Query *query)
+PostParseAnalyzeHook(ParseState *pstate, Query *query, JumbleState *jstate)
 {
 	if (save_post_parse_analyze_hook)
-		save_post_parse_analyze_hook(pstate, query);
+		save_post_parse_analyze_hook(pstate, query, NULL);
 
 	if (IsBinaryUpgrade || !PipelineDBExists())
 		return;
@@ -3858,7 +3860,7 @@ make_deserialization_call(Node *arg, Oid deseroid)
 	Assert(exprType(arg) == BYTEAOID);
 
 	Assert(HeapTupleIsValid(tup));
-	c = makeConst(REGPROCOID, -1, 0, 4, ObjectIdGetDatum(HeapTupleGetOid(tup)), false, true);
+	c = makeConst(REGPROCOID, -1, 0, 4, ObjectIdGetDatum(((Form_pg_proc) GETSTRUCT(tup))->oid), false, true);
 	args = list_make2(c, arg);
 	deser = makeFuncExpr(GetDeserializeOid(), INTERNALOID, args, 0, 0, COERCE_EXPLICIT_CALL);
 
@@ -3977,14 +3979,14 @@ add_unfinalized_var(Index varno, AttrNumber attr, Query *q,
 		 */
 		if (!subquery)
 		{
-			Relation rel = heap_open(relid, AccessShareLock);
+			Relation rel = table_open(relid, AccessShareLock);
 			Form_pg_attribute att = TupleDescAttr(rel->rd_att, attr - 1);
 
 			if (attrtypmod)
 				*attrtypmod = att->atttypmod;
 
 			combine_target = makeVar(varno, att->attnum, att->atttypid, att->atttypmod, att->attcollation, 0);
-			heap_close(rel, AccessShareLock);
+			table_close(rel, AccessShareLock);
 
 			*matrelid = relid;
 			*cvattr = combine_target->varattno;
@@ -4036,7 +4038,7 @@ add_unfinalized_var(Index varno, AttrNumber attr, Query *q,
 		result = copyObject(combine_target);
 		result->varattno = resno;
 		result->varno = varno;
-		result->varoattno = combine_target->varattno;
+		result->varattnosyn = combine_target->varattno;
 
 		*matrelid = relid;
 		*cvattr = combine_target->varattno;
@@ -4341,13 +4343,13 @@ analyze_osrel_combine(Var *target, Query *q)
 	if (!RelidIsOutputStream(rte->relid))
 		elog(ERROR, "relation is not an output stream");
 
-	osrel = heap_open(rte->relid, AccessShareLock);
+	osrel = table_open(rte->relid, AccessShareLock);
 	desc = RelationGetDescr(osrel);
 
 	if (target->varattno > desc->natts || pg_strcasecmp(OSREL_DELTA_ROW, NameStr(TupleDescAttr(desc, target->varattno - 1)->attname)))
 		elog(ERROR, "column is not a delta column");
 
-	heap_close(osrel, NoLock);
+	table_close(osrel, NoLock);
 	tup = PipelineCatalogLookup(PIPELINEQUERYOSRELID, 1, ObjectIdGetDatum(rte->relid));
 	Assert(HeapTupleIsValid(tup));
 
@@ -4386,7 +4388,7 @@ get_combine_target_aggref(Oid matrelid, AttrNumber attr)
 	 */
 	cq = GetContQueryForId(pqrow->id);
 	wq = GetContWorkerQuery(cq);
-	rel = heap_open(matrelid, AccessShareLock);
+	rel = table_open(matrelid, AccessShareLock);
 
 	foreach(lc, wq->targetList)
 	{
@@ -4398,7 +4400,7 @@ get_combine_target_aggref(Oid matrelid, AttrNumber attr)
 		}
 	}
 
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	if (!cvte)
 		elog(ERROR, "Aggref not found in worker targetlist");

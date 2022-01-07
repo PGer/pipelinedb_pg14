@@ -10,6 +10,8 @@
 #include "postgres.h"
 #include "funcapi.h"
 
+#include "access/heapam.h"
+#include "access/relation.h"
 #include "catalog.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_type.h"
@@ -18,6 +20,7 @@
 #include "pipeline_query.h"
 #include "pipeline_stream.h"
 #include "ruleutils.h"
+#include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -27,7 +30,7 @@
 typedef struct
 {
 	Relation rel;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 } RelationScanData;
 
 static int
@@ -61,7 +64,7 @@ pipeline_get_streams(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tupdesc for result tuples */
-		tupdesc = CreateTemplateTupleDesc(3, false);
+		tupdesc = CreateTemplateTupleDesc(3);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "schema", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "name", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "queries", TEXTARRAYOID, -1, 0);
@@ -79,7 +82,7 @@ pipeline_get_streams(PG_FUNCTION_ARGS)
 
 		data = palloc(sizeof(RelationScanData));
 		data->rel = OpenPipelineStream(AccessShareLock);
-		data->scan = heap_beginscan_catalog(data->rel, 0, NULL);
+		data->scan = table_beginscan_catalog(data->rel, 0, NULL);
 		funcctx->user_fctx = data;
 
 		MemoryContextSwitchTo(old);
@@ -187,7 +190,7 @@ pipeline_get_streams(PG_FUNCTION_ARGS)
 	}
 
 	heap_endscan(data->scan);
-	heap_close(data->rel, AccessShareLock);
+	table_close(data->rel, AccessShareLock);
 
 	SRF_RETURN_DONE(funcctx);
 }
@@ -216,7 +219,7 @@ pipeline_get_views(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tupdesc for result tuples */
-		tupdesc = CreateTemplateTupleDesc(5, false);
+		tupdesc = CreateTemplateTupleDesc(5);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "id", OIDOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "schema", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "name", TEXTOID, -1, 0);
@@ -236,7 +239,7 @@ pipeline_get_views(PG_FUNCTION_ARGS)
 
 		data = palloc(sizeof(RelationScanData));
 		data->rel = OpenPipelineQuery(AccessShareLock);
-		data->scan = heap_beginscan_catalog(data->rel, 0, NULL);
+		data->scan = table_beginscan_catalog(data->rel, 0, NULL);
 		funcctx->user_fctx = data;
 
 		MemoryContextSwitchTo(old);
@@ -308,7 +311,7 @@ pipeline_get_transforms(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tupdesc for result tuples */
-		tupdesc = CreateTemplateTupleDesc(7, false);
+		tupdesc = CreateTemplateTupleDesc(7);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "id", OIDOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "schema", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "name", TEXTOID, -1, 0);
@@ -330,7 +333,7 @@ pipeline_get_transforms(PG_FUNCTION_ARGS)
 
 		data = palloc(sizeof(RelationScanData));
 		data->rel = OpenPipelineQuery(AccessShareLock);
-		data->scan = heap_beginscan_catalog(data->rel, 0, NULL);
+		data->scan = table_beginscan_catalog(data->rel, 0, NULL);
 		funcctx->user_fctx = data;
 
 		MemoryContextSwitchTo(old);
@@ -445,7 +448,7 @@ pipeline_get_stream_readers(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tupdesc for result tuples */
-		tupdesc = CreateTemplateTupleDesc(2, false);
+		tupdesc = CreateTemplateTupleDesc(2);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "stream", TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "continuous_queries", TEXTARRAYOID, -1, 0);
 
@@ -462,7 +465,7 @@ pipeline_get_stream_readers(PG_FUNCTION_ARGS)
 
 		data = palloc(sizeof(RelationScanData));
 		data->rel = OpenPipelineStream(AccessShareLock);
-		data->scan = heap_beginscan_catalog(data->rel, 0, NULL);
+		data->scan = table_beginscan_catalog(data->rel, 0, NULL);
 		funcctx->user_fctx = data;
 
 		MemoryContextSwitchTo(old);

@@ -12,6 +12,7 @@
 
 #include "analyzer.h"
 #include "access/htup_details.h"
+#include "access/table.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
@@ -20,7 +21,7 @@
 #include "executor/executor.h"
 #include "foreign/fdwapi.h"
 #include "nodes/makefuncs.h"
-#include "nodes/relation.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/cost.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/plancat.h"
@@ -217,7 +218,7 @@ BeginStreamScan(ForeignScanState *node, int eflags)
 			ALLOCSET_DEFAULT_MAXSIZE);
 
 	state->pi->ecxt = CreateStandaloneExprContext();
-	state->pi->outdesc = ExecTypeFromTL(physical_tlist, false);
+	state->pi->outdesc = ExecTypeFromTL(physical_tlist);
 	state->pi->indesc = NULL;
 
 	Assert(state->pi->outdesc->natts == list_length(colnames));
@@ -305,7 +306,8 @@ init_proj_info(StreamProjectionInfo *pi, ipc_tuple *itup)
 
 	pi->indesc = itup->desc;
 	pi->attrmap = map_field_positions(pi->indesc, pi->outdesc);
-	pi->slot = MakeSingleTupleTableSlot(pi->indesc);
+	pi->slot = MakeSingleTupleTableSlot(pi->indesc, &TTSOpsMinimalTuple);
+elog(LOG, "stream_fdw.c 001");
 
 	/*
 	 * Load RECORDOID tuple descriptors in the cache.
@@ -359,7 +361,7 @@ exec_stream_project(StreamScanState *node, ipc_tuple *itup)
 	/* assume every element in the output tuple is null until we actually see values */
 	MemSet(nulls, true, outdesc->natts);
 
-	ExecStoreTuple(itup->tup, pi->slot, InvalidBuffer, false);
+	ExecStoreHeapTuple(itup->tup, pi->slot, false);
 
 	/*
 	 * For each field in the event, place it in the corresponding field in the
@@ -465,7 +467,7 @@ IterateStreamScan(ForeignScanState *node)
 		init_proj_info(state->pi, itup);
 
 	tup = exec_stream_project(state, itup);
-	ExecStoreTuple(tup, slot, InvalidBuffer, false);
+	ExecStoreHeapTuple(tup, slot, false);
 
 	return slot;
 }
@@ -535,8 +537,9 @@ TupleTableSlot *
 ExecStreamInsert(EState *estate, ResultRelInfo *result_info,
 						  TupleTableSlot *slot, TupleTableSlot *planSlot)
 {
+	bool should_free = true;
 	StreamInsertState *sis = (StreamInsertState *) result_info->ri_FdwState;
-	HeapTuple tup = ExecMaterializeSlot(slot);
+	HeapTuple tup = ExecFetchSlotHeapTuple(slot, true, &should_free);
 
 	if (bms_is_empty(sis->queries))
 		return slot;
@@ -635,6 +638,7 @@ insert_into_stream(PG_FUNCTION_ARGS)
 	rinfo.ri_RangeTableIndex = 1; /* dummy */
 	rinfo.ri_TrigDesc = NULL;
 
+elog(LOG, "***");
 	for (i = 0; i < trig->tgnargs; i++)
 	{
 		RangeVar *stream;
@@ -642,19 +646,20 @@ insert_into_stream(PG_FUNCTION_ARGS)
 		StreamInsertState *sis;
 
 		stream = makeRangeVarFromNameList(textToQualifiedNameList(cstring_to_text(trig->tgargs[i])));
-		rel = heap_openrv(stream, AccessShareLock);
+		rel = table_openrv(stream, AccessShareLock);
 
 		rinfo.ri_RelationDesc = rel;
 
 		BeginStreamModify(NULL, &rinfo, fdw_private, 0, 0);
 		sis = (StreamInsertState *) rinfo.ri_FdwState;
 		Assert(sis);
-
 		if (sis->queries)
 		{
-			TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
 
-			ExecStoreTuple(tup, slot, InvalidBuffer, false);
+			TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(rel), &TTSOpsMinimalTuple);
+elog(LOG, "stream_fdw.c 002");
+
+			ExecStoreHeapTuple(tup, slot, false);
 			ExecStreamInsert(NULL, &rinfo, slot, NULL);
 			ExecClearTuple(slot);
 
@@ -662,8 +667,9 @@ insert_into_stream(PG_FUNCTION_ARGS)
 		}
 
 		EndStreamModify(NULL, &rinfo);
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 	}
 
+elog(LOG, "*****");
 	return PointerGetDatum(tup);
 }

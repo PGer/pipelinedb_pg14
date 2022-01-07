@@ -14,7 +14,7 @@
 
 extern void InstallCommandHooks(void);
 
-extern void PipelineProcessUtility(PlannedStmt *pstmt, const char *queryString, ProcessUtilityContext context,
-		ParamListInfo params, QueryEnvironment *queryEnv, DestReceiver *dest, char *completionTag);
+extern void PipelineProcessUtility(PlannedStmt *pstmt, const char *queryString, bool readOnlyTree, ProcessUtilityContext context,
+		ParamListInfo params, QueryEnvironment *queryEnv, DestReceiver *dest, QueryCompletion *qc);
 
 #endif

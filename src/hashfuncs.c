@@ -194,14 +194,14 @@ slot_hash_group_skip_attr(TupleTableSlot *slot, AttrNumber skip_attno, FuncExpr 
 
 		if (attno == skip_attno)
 		{
-			fcinfo->argnull[i] = true;
+			fcinfo->args[i].isnull = true;
 			i++;
 			continue;
 		}
 
 		d = slot_getattr(slot, attno, &isnull);
-		fcinfo->arg[i] = d;
-		fcinfo->argnull[i] = isnull;
+		fcinfo->args[i].value = d;
+		fcinfo->args[i].isnull = isnull;
 		i++;
 	}
 

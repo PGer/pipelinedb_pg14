@@ -11,6 +11,7 @@
 
 #include "access/htup_details.h"
 #include "access/printtup.h"
+#include "access/table.h"
 #include "catalog.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_proc.h"
@@ -47,7 +48,7 @@ transform_receive(TransformReceiver *t, TupleTableSlot *slot)
 		Bitmapset *readers = GetAllStreamReaders(t->cont_query->osrelid);
 
 		t->os_has_readers = !bms_is_empty(readers);
-		t->tg_rel = heap_open(t->cont_query->matrelid, AccessShareLock);
+		t->tg_rel = table_open(t->cont_query->matrelid, AccessShareLock);
 	}
 
 	if (OidIsValid(t->cont_query->tgfn) &&
@@ -59,7 +60,7 @@ transform_receive(TransformReceiver *t, TupleTableSlot *slot)
 		Assert(t->trig_fcinfo);
 
 		cxt->tg_relation = t->tg_rel;
-		cxt->tg_trigtuple = ExecCopySlotTuple(slot);
+		cxt->tg_trigtuple = ExecCopySlotHeapTuple(slot);
 
 		/*
 		 * If it's a trigger function that inserts into another stream, we need to make
@@ -91,7 +92,7 @@ transform_receive(TransformReceiver *t, TupleTableSlot *slot)
 			t->tups = repalloc(t->tups, sizeof(HeapTuple) * t->nmaxtups);
 		}
 
-		t->tups[t->ntups++] = ExecCopySlotTuple(slot);
+		t->tups[t->ntups++] = ExecCopySlotHeapTuple(slot);
 	}
 
 	MemoryContextSwitchTo(old);
@@ -153,7 +154,7 @@ align_tuple(TransformReceiver *t, HeapTuple tup, TupleTableSlot *slot, TupleDesc
 		return tup;
 
 	MemSet(nulls, false, sizeof(nulls));
-	ExecStoreTuple(tup, slot, InvalidBuffer, false);
+	ExecStoreHeapTuple(tup, slot, false);
 
 	for (i = 0; i < osrel->natts; i++)
 	{
@@ -181,13 +182,14 @@ insert_into_rel(TransformReceiver *t, Relation rel, TupleTableSlot *event_slot)
 	if (sis->queries)
 	{
 		TupleDesc osreldesc = RelationGetDescr(rel);
-		TupleTableSlot *slot = MakeSingleTupleTableSlot(osreldesc);
+		TupleTableSlot *slot = MakeSingleTupleTableSlot(osreldesc, &TTSOpsMinimalTuple);
+elog(LOG, "t_r.c 001");
 		int j;
 
 		for (j = 0; j < t->ntups; j++)
 		{
 			HeapTuple tup = align_tuple(t, t->tups[j], event_slot, osreldesc);
-			ExecStoreTuple(tup, slot, InvalidBuffer, false);
+			ExecStoreHeapTuple(tup, slot, false);
 			ExecStreamInsert(NULL, rinfo, slot, NULL);
 			ExecClearTuple(slot);
 		}
@@ -215,20 +217,20 @@ pipeline_stream_insert_batch(TransformReceiver *t, TupleTableSlot *slot)
 	for (i = 0; i < t->cont_query->tgnargs; i++)
 	{
 		RangeVar *rv = makeRangeVarFromNameList(stringToQualifiedNameList(t->cont_query->tgargs[i]));
-		Relation rel = heap_openrv(rv, AccessShareLock);
+		Relation rel = table_openrv(rv, AccessShareLock);
 
 		insert_into_rel(t, rel, slot);
 
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 	}
 
 	if (t->os_has_readers)
 	{
-		Relation rel = heap_open(t->cont_query->osrelid, AccessShareLock);
+		Relation rel = table_open(t->cont_query->osrelid, AccessShareLock);
 
 		insert_into_rel(t, rel, slot);
 
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 	}
 
 	if (t->ntups)
@@ -281,7 +283,7 @@ flush_to_transform(struct BatchReceiver *receiver, TupleTableSlot *slot)
 
 	if (t->tg_rel)
 	{
-		heap_close(t->tg_rel, AccessShareLock);
+		table_close(t->tg_rel, AccessShareLock);
 		t->tg_rel = NULL;
 	}
 
@@ -309,7 +311,7 @@ CreateTransformReceiver(ContExecutor *exec, ContQuery *query, Tuplestorestate *b
 
 	if (OidIsValid(query->tgfn) && query->tgfn != GetInsertIntoStreamOid())
 	{
-		FunctionCallInfo fcinfo = palloc0(sizeof(FunctionCallInfoData));
+		FunctionCallInfo fcinfo = palloc0(sizeof(FunctionCallInfoBaseData));
 		FmgrInfo *finfo = palloc0(sizeof(FmgrInfo));
 		TriggerData *cxt = palloc0(sizeof(TriggerData));
 		Trigger *trig = palloc0(sizeof(Trigger));
@@ -329,8 +331,8 @@ CreateTransformReceiver(ContExecutor *exec, ContQuery *query, Tuplestorestate *b
 
 		cxt->type = T_TriggerData;
 		cxt->tg_event = TRIGGER_EVENT_ROW;
-		cxt->tg_newtuplebuf = InvalidBuffer;
-		cxt->tg_trigtuplebuf = InvalidBuffer;
+		//cxt->tg_newtuplebuf = InvalidBuffer;
+		//cxt->tg_trigtuplebuf = InvalidBuffer;
 		cxt->tg_trigger = trig;
 
 		fcinfo->flinfo = finfo;

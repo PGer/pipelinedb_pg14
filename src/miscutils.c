@@ -13,10 +13,12 @@
 #include <math.h>
 #include <unistd.h>
 
+#include "access/table.h"
 #include "analyzer.h"
 #include "catalog.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_aggregate.h"
+#include "catalog/pg_proc.h"
 #include "commands/tablecmds.h"
 #include "datatype/timestamp.h"
 #include "executor/executor.h"
@@ -33,6 +35,7 @@
 #include "pipeline_stream.h"
 #include "port.h"
 #include "reaper.h"
+#include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/fmgrprotos.h"
@@ -272,8 +275,6 @@ equalTupleDescsWeak(TupleDesc tupdesc1, TupleDesc tupdesc2, bool check_names)
 
 	if (tupdesc1->natts != tupdesc2->natts)
 		return false;
-	if (tupdesc1->tdhasoid != tupdesc2->tdhasoid)
-		return false;
 
 	for (i = 0; i < tupdesc1->natts; i++)
 	{
@@ -405,7 +406,7 @@ pipeline_finalize(PG_FUNCTION_ARGS)
 		if (!HeapTupleIsValid(tup))
 			elog(ERROR, "no pg_proc row found for function \"%s\"", TextDatumGetCString(name));
 
-		proid = HeapTupleGetOid(tup);
+		proid = ((Form_pg_proc) GETSTRUCT(tup))->oid;
 		ReleaseSysCache(tup);
 
 		tup = SearchSysCache1(AGGFNOID, ObjectIdGetDatum(proid));
@@ -421,13 +422,13 @@ pipeline_finalize(PG_FUNCTION_ARGS)
 		context->curaggcontext = CreateStandaloneExprContext();
 
 		deserfn = palloc0(sizeof(FmgrInfo));
-		deserinfo = palloc0(sizeof(FunctionCallInfoData));
+		deserinfo = palloc0(sizeof(FunctionCallInfoBaseData));
 
 		fmgr_info(agg->aggdeserialfn, deserfn);
 		InitFunctionCallInfoData(*deserinfo, deserfn, 2, InvalidOid, (Node *) context, NULL);
 
 		finalfn = palloc0(sizeof(FmgrInfo));
-		finalinfo = palloc0(sizeof(FunctionCallInfoData));
+		finalinfo = palloc0(sizeof(FunctionCallInfoBaseData));
 		fmgr_info(agg->aggfinalfn, finalfn);
 
 		InitFunctionCallInfoData(*finalinfo, finalfn, 1, InvalidOid, NULL, NULL);
@@ -441,18 +442,18 @@ pipeline_finalize(PG_FUNCTION_ARGS)
 
 	fns = (List *) fcinfo->flinfo->fn_extra;
 	deserinfo = (FunctionCallInfo) linitial(fns);
-	deserinfo->arg[0] = PG_GETARG_DATUM(2);
-	deserinfo->argnull[0] = PG_ARGISNULL(2);
-	deserinfo->argnull[1] = false;
+	deserinfo->args[0].value = PG_GETARG_DATUM(2);
+	deserinfo->args[0].isnull = PG_ARGISNULL(2);
+	deserinfo->args[1].isnull = false;
 
-	if (deserinfo->argnull[0] && deserinfo->flinfo->fn_strict)
+	if (deserinfo->args[0].isnull && deserinfo->flinfo->fn_strict)
 		PG_RETURN_NULL();
 
 	deserialized = FunctionCallInvoke(deserinfo);
 
 	finalinfo = (FunctionCallInfo) lsecond(fns);
-	finalinfo->arg[0] = deserialized;
-	finalinfo->argnull[0] = false;
+	finalinfo->args[0].value = deserialized;
+	finalinfo->args[0].isnull = false;
 
 	finalized = FunctionCallInvoke(finalinfo);
 
@@ -483,7 +484,7 @@ pipeline_deserialize(PG_FUNCTION_ARGS)
 		context->curaggcontext = CreateStandaloneExprContext();
 
 		deserfn = palloc0(sizeof(FmgrInfo));
-		deserinfo = palloc0(sizeof(FunctionCallInfoData));
+		deserinfo = palloc0(sizeof(FunctionCallInfoBaseData));
 
 		fmgr_info(proid, deserfn);
 		InitFunctionCallInfoData(*deserinfo, deserfn, 2, InvalidOid, (Node *) context, NULL);
@@ -493,9 +494,9 @@ pipeline_deserialize(PG_FUNCTION_ARGS)
 	}
 
 	deserinfo = (FunctionCallInfo) fcinfo->flinfo->fn_extra;
-	deserinfo->arg[0] = PG_GETARG_DATUM(1);
-	deserinfo->argnull[0] = PG_ARGISNULL(1);
-	deserinfo->argnull[1] = false;
+	deserinfo->args[0].value = PG_GETARG_DATUM(1);
+	deserinfo->args[0].isnull = PG_ARGISNULL(1);
+	deserinfo->args[1].isnull = false;
 
 	/*
 	 * If the deserialize function is strict, be careful not to even call it with a NULL input
@@ -696,7 +697,7 @@ pipeline_set_ttl(PG_FUNCTION_ARGS)
 	oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 	/* build tupdesc for result tuples */
-	tupdesc = CreateTemplateTupleDesc(2, false);
+	tupdesc = CreateTemplateTupleDesc(2);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "ttl", INT4OID, -1, 0);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "ttl_attno", INT2OID, -1, 0);
 
@@ -714,7 +715,7 @@ pipeline_set_ttl(PG_FUNCTION_ARGS)
 
 	if (ttl_colname)
 	{
-		matrel = heap_openrv(cv->matrel, NoLock);
+		matrel = table_openrv(cv->matrel, NoLock);
 
 		/*
 		 * Find which attribute number corresponds to the given column name
@@ -731,7 +732,7 @@ pipeline_set_ttl(PG_FUNCTION_ARGS)
 				break;
 			}
 		}
-		heap_close(matrel, NoLock);
+		table_close(matrel, NoLock);
 
 		if (!AttributeNumberIsValid(ttl_attno))
 			elog(ERROR, "column \"%s\" does not exist", ttl_colname);

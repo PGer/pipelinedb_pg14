@@ -17,7 +17,8 @@
 #include "nodes/bitmapset.h"
 #include "nodes/execnodes.h"
 #include "nodes/plannodes.h"
-#include "nodes/relation.h"
+//#include "nodes/relation.h"
+#include "optimizer/pathnode.h"
 #include "microbatch.h"
 #include "utils/rel.h"
 

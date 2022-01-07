@@ -11,6 +11,8 @@
 
 #include "access/htup_details.h"
 #include "access/xact.h"
+#include "access/genam.h"
+#include "access/heapam.h"
 #include "catalog/index.h"
 #include "executor/executor.h"
 #include "matrel.h"
@@ -105,7 +107,7 @@ ExecInsertCQMatRelIndexTuples(ResultRelInfo *indstate, TupleTableSlot *slot, ESt
 	if (numIndexes == 0)
 		return;
 
-	tup = ExecMaterializeSlot(slot);
+	ExecMaterializeSlot(slot);
 
 	/* HOT update does not require index inserts */
 	if (HeapTupleIsHeapOnly(tup))
@@ -137,7 +139,7 @@ ExecInsertCQMatRelIndexTuples(ResultRelInfo *indstate, TupleTableSlot *slot, ESt
 
 		FormIndexDatum(indexInfo, slot, estate, values, isnull);
 		index_insert(relationDescs[i], values, isnull, &(tup->t_self),
-				heapRelation, relationDescs[i]->rd_index->indisunique ? UNIQUE_CHECK_YES : UNIQUE_CHECK_NO, indexInfo);
+				heapRelation, relationDescs[i]->rd_index->indisunique ? UNIQUE_CHECK_YES : UNIQUE_CHECK_NO, false, indexInfo);
 	}
 }
 
@@ -174,7 +176,7 @@ ExecCQMatRelUpdate(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 	if (!result)
 		return;
 
-	tup = ExecMaterializeSlot(slot);
+	ExecMaterializeSlot(slot);
 	simple_heap_update(ri->ri_RelationDesc, &tup->t_self, tup);
 
 	if (!HeapTupleIsHeapOnly(tup))
@@ -214,7 +216,7 @@ ExecCQMatRelInsert(ResultRelInfo *ri, TupleTableSlot *slot, EState *estate)
 	if (!result)
 		return;
 
-	tup = ExecMaterializeSlot(slot);
+	ExecMaterializeSlot(slot);
 
 	heap_insert(ri->ri_RelationDesc, tup, GetCurrentCommandId(true), 0, NULL);
 	ExecInsertCQMatRelIndexTuples(ri, slot, estate);

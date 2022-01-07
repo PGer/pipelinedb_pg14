@@ -167,8 +167,8 @@ create_index_on_matrel(IndexStmt *stmt)
  * Hook for PipelineDB to intercept relevant utility queries
  */
 void
-PipelineProcessUtility(PlannedStmt *pstmt, const char *sql, ProcessUtilityContext context,
-		ParamListInfo params, QueryEnvironment *env, DestReceiver *dest, char *tag)
+PipelineProcessUtility(PlannedStmt *pstmt, const char *sql, bool readOnlyTree, ProcessUtilityContext context,
+		ParamListInfo params, QueryEnvironment *env, DestReceiver *dest, QueryCompletion *qc)
 {
 	ContExecutionLock exec_lock = NULL;
 	PipelineDDLLock ddl_lock = NULL;
@@ -212,7 +212,7 @@ PipelineProcessUtility(PlannedStmt *pstmt, const char *sql, ProcessUtilityContex
 						 pstmt->stmt_location, pstmt->stmt_len,
 						 &processed);
 
-				sprintf(tag, "COPY %ld", processed);
+				//sprintf(tag, "COPY %ld", processed);
 				goto epilogue;
 			}
 		}
@@ -379,7 +379,7 @@ PipelineProcessUtility(PlannedStmt *pstmt, const char *sql, ProcessUtilityContex
 					}
 				}
 			}
-			else if (stmt->relkind == OBJECT_VIEW && RangeVarIsContView(stmt->relation))
+			else if (stmt->objtype == OBJECT_VIEW && RangeVarIsContView(stmt->relation))
 			{
 				/*
 				 * Note that continuous views can be renamed and their schemas may be altered, but neither
@@ -462,9 +462,9 @@ PipelineProcessUtility(PlannedStmt *pstmt, const char *sql, ProcessUtilityContex
 run:
 
 		if (save_utility_hook != NULL)
-			(*save_utility_hook) (pstmt, sql, context, params, env, dest, tag);
+			(*save_utility_hook) (pstmt, sql, false, context, params, env, dest, qc);
 		else
-			standard_ProcessUtility(pstmt, sql, context, params, env, dest, tag);
+			standard_ProcessUtility(pstmt, sql, false, context, params, env, dest, qc);
 
 		if (!exists && pstmt->utilityStmt &&
 				IsA(pstmt->utilityStmt, CreateExtensionStmt) && IsCreatePipelineDBCommand((CreateExtensionStmt *) pstmt->utilityStmt))

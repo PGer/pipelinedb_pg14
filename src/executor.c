@@ -40,7 +40,7 @@ AcquireContExecutionLock(LOCKMODE mode)
 {
 	if (IsBinaryUpgrade)
 		return NULL;
-	return heap_open(GetPipelineExecLockOid(), mode);
+	return table_open(GetPipelineExecLockOid(), mode);
 }
 
 /*
@@ -49,7 +49,7 @@ AcquireContExecutionLock(LOCKMODE mode)
 void
 ReleaseContExecutionLock(ContExecutionLock lock)
 {
-	heap_close(lock, NoLock);
+	table_close(lock, NoLock);
 }
 
 /*

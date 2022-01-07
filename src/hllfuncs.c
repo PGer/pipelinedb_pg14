@@ -21,6 +21,7 @@
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/tlist.h"
+#include "optimizer/optimizer.h"
 #include "parser/parse_clause.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_type.h"
@@ -573,7 +574,7 @@ cq_hypothetical_set_per_query_startup(FunctionCallInfo fcinfo)
 	if (!directargs)
 		elog(ERROR, "expected constant expressions at the beginning of the argument list");
 
-	directdesc = ExecTypeFromTL(directargs, false);
+	directdesc = ExecTypeFromTL(directargs);
 	values = palloc0(directdesc->natts * sizeof(Datum));
 	nulls = palloc0(directdesc->natts * sizeof(bool));
 
@@ -586,7 +587,8 @@ cq_hypothetical_set_per_query_startup(FunctionCallInfo fcinfo)
 		i++;
 	}
 
-	qstate->directslot = MakeSingleTupleTableSlot(directdesc);
+	qstate->directslot = MakeSingleTupleTableSlot(directdesc, &TTSOpsMinimalTuple);
+elog(LOG, "hll.c 001");
 	qstate->directslot->tts_values = values;
 	qstate->directslot->tts_isnull = nulls;
 
@@ -621,12 +623,13 @@ cq_hypothetical_set_per_query_startup(FunctionCallInfo fcinfo)
 		sortargs = lappend(sortargs, te);
 	}
 
-	sortdesc = ExecTypeFromTL(sortargs, false);
+	sortdesc = ExecTypeFromTL(sortargs);
 
 	if (!equalTupleDescs(directdesc, sortdesc))
 		elog(ERROR, "sort expressions must have the same type as input expressions");
 
-	qstate->curslot = MakeSingleTupleTableSlot(sortdesc);
+	qstate->curslot = MakeSingleTupleTableSlot(sortdesc, &TTSOpsMinimalTuple);
+elog(LOG, "hll.c 002");
 
 	/*
 	 * Build our comparator for determining how an input tuple compares to our

@@ -11,6 +11,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/xact.h"
+#include "access/table.h"
 #include "catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
@@ -35,6 +36,7 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/varlena.h"
+#include "common/hashfn.h"
 
 Oid PipelineStreamRelationOid = InvalidOid;
 
@@ -109,7 +111,7 @@ transformCreateStreamStmt(CreateForeignTableStmt *stmt)
 			 * HACK(usmanm): If arrival_timestamp is the last column and has the correct type, then let it slide. This
 			 * it for making CREATE STREAM ... (LIKE ...) and pg_dump/pg_restore to work. Should be fixed by #1616.
 			 */
-			if (!lnext(lc) && typ == TIMESTAMPTZOID)
+			if (!lnext(stmt->base.tableElts, lc) && typ == TIMESTAMPTZOID)
 				saw_atime = true;
 			else
 				ereport(ERROR,
@@ -204,13 +206,13 @@ RelidIsOutputStream(Oid relid)
 Relation
 OpenPipelineStream(LOCKMODE mode)
 {
-	return heap_open(GetPipelineStreamOid(), mode);
+	return table_open(GetPipelineStreamOid(), mode);
 }
 
 void
 ClosePipelineStream(Relation ps, LOCKMODE mode)
 {
-	heap_close(ps, mode);
+	table_close(ps, mode);
 }
 
 /*
@@ -278,7 +280,7 @@ CreatePipelineStreamEntry(CreateForeignTableStmt *stmt, Oid relid)
 static HTAB *
 streams_to_meta(Relation pipeline_query)
 {
-	HeapScanDesc scandesc;
+	TableScanDesc scandesc;
 	HASHCTL ctl;
 	HTAB *targets;
 	StreamTargetsEntry *entry;
@@ -291,7 +293,7 @@ streams_to_meta(Relation pipeline_query)
 	ctl.hash = oid_hash;
 
 	targets = hash_create("streams_to_targets_and_desc", 32, &ctl, HASH_ELEM | HASH_FUNCTION);
-	scandesc = heap_beginscan_catalog(pipeline_query, 0, NULL);
+	scandesc = table_beginscan_catalog(pipeline_query, 0, NULL);
 
 	while ((tup = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
 	{
@@ -407,11 +409,11 @@ update_pipeline_stream_catalog(Relation pipeline_stream, HTAB *hash)
 static void
 mark_nonexistent_streams(Relation pipeline_stream, List *keys)
 {
-	HeapScanDesc scandesc;
+	TableScanDesc scandesc;
 	HeapTuple tup;
 
 	/* delete from the catalog any streams that aren't in the given list */
-	scandesc = heap_beginscan_catalog(pipeline_stream, 0, NULL);
+	scandesc = table_beginscan_catalog(pipeline_stream, 0, NULL);
 	while ((tup = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
 	{
 		ListCell *lc;
@@ -480,8 +482,8 @@ SyncPipelineStreamReaders(void)
 					ALLOCSET_DEFAULT_INITSIZE,
 					ALLOCSET_DEFAULT_MAXSIZE);
 
-	pipeline_query = heap_open(PipelineQueryRelationOid, NoLock);
-	pipeline_stream = heap_open(PipelineStreamRelationOid, RowExclusiveLock);
+	pipeline_query = table_open(PipelineQueryRelationOid, NoLock);
+	pipeline_stream = table_open(PipelineStreamRelationOid, RowExclusiveLock);
 
 	/*
 	 * The following series of function calls can consume quite a bit
@@ -499,8 +501,8 @@ SyncPipelineStreamReaders(void)
 	MemoryContextSwitchTo(old);
 	MemoryContextDelete(tmp_cxt);
 
-	heap_close(pipeline_stream, NoLock);
-	heap_close(pipeline_query, NoLock);
+	table_close(pipeline_stream, NoLock);
+	table_close(pipeline_query, NoLock);
 }
 
 /*
@@ -577,7 +579,7 @@ GetLocalStreamReaders(Oid relid)
 			{
 				Datum qual_split = PointerGetDatum(cstring_to_text("."));
 				Datum view_datum = PointerGetDatum(cstring_to_text(view_name));
-				Datum quals_datum = DirectFunctionCall3(split_text, view_datum, qual_split, Int32GetDatum(i));
+				Datum quals_datum = DirectFunctionCall3(split_part, view_datum, qual_split, Int32GetDatum(i));
 				char *qual = text_to_cstring((const text *) DatumGetPointer(quals_datum));
 
 				if (!strlen(qual))
@@ -614,13 +616,13 @@ SyncPipelineStream(void)
 {
 	HeapTuple tup;
 	Relation pipeline_stream;
-	HeapScanDesc scan_desc;
+	TableScanDesc scan_desc;
 
 	if (pg_class_aclcheck(GetPipelineStreamOid(), GetUserId(), ACL_DELETE) != ACLCHECK_OK)
 		return;
 
 	pipeline_stream = OpenPipelineStream(NoLock);
-	scan_desc = heap_beginscan_catalog(pipeline_stream, 0, NULL);
+	scan_desc = table_beginscan_catalog(pipeline_stream, 0, NULL);
 
 	while ((tup = heap_getnext(scan_desc, ForwardScanDirection)) != NULL)
 	{
@@ -633,5 +635,5 @@ SyncPipelineStream(void)
 	}
 
 	heap_endscan(scan_desc);
-	heap_close(pipeline_stream, NoLock);
+	table_close(pipeline_stream, NoLock);
 }

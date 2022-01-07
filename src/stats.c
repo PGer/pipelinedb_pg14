@@ -413,7 +413,7 @@ pipeline_get_proc_query_stats(PG_FUNCTION_ARGS)
 		old = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tupdesc for result tuples */
-		desc = CreateTemplateTupleDesc(13, false);
+		desc = CreateTemplateTupleDesc(13);
 		TupleDescInitEntry(desc, (AttrNumber) 1, "type", TEXTOID, -1, 0);
 		TupleDescInitEntry(desc, (AttrNumber) 2, "pid", INT4OID, -1, 0);
 		TupleDescInitEntry(desc, (AttrNumber) 3, "start_time", TIMESTAMPTZOID, -1, 0);
@@ -511,7 +511,7 @@ pipeline_get_stream_stats(PG_FUNCTION_ARGS)
 		old = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		/* build tupdesc for result tuples */
-		desc = CreateTemplateTupleDesc(4, false);
+		desc = CreateTemplateTupleDesc(4);
 		TupleDescInitEntry(desc, (AttrNumber) 1, "relid", OIDOID, -1, 0);
 		TupleDescInitEntry(desc, (AttrNumber) 2, "input_rows", INT8OID, -1, 0);
 		TupleDescInitEntry(desc, (AttrNumber) 3, "input_batches", INT8OID, -1, 0);

@@ -15,6 +15,7 @@
 #include "miscutils.h"
 #include "scheduler.h"
 #include "utils/hsearch.h"
+#include "common/hashfn.h"
 #include "utils/memutils.h"
 
 typedef struct pending_microbatch_t

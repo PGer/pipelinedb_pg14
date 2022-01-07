@@ -189,8 +189,8 @@ output_physical_tuple(TupleTableSlot *slot)
 	old = MemoryContextSwitchTo(lookup_result->tablecxt);
 
 	pt = palloc0(sizeof(PhysicalTupleData));
-	pt->tuple = ExecCopySlotTuple(slot);
-	entry = LookupTupleHashEntry(lookup_result, slot, &isnew);
+	pt->tuple = ExecCopySlotHeapTuple(slot);
+	entry = LookupTupleHashEntry(lookup_result, slot, &isnew, NULL);
 	entry->additional = pt;
 
 	MemoryContextSwitchTo(old);
@@ -221,14 +221,15 @@ nestloop_lookup_next(struct CustomScanState *node)
 	NestLoopState *outer = (NestLoopState *) outerPlanState(node);
 	TupleTableSlot *result;
 	TupleTableSlot *inner;
-	HTSU_Result res;
+	TM_Result res;
 	EState *estate = outer->js.ps.state;
 	Buffer buffer;
-	HeapUpdateFailureData hufd;
+	TM_FailureData hufd;
 	HeapTuple tup;
 	Relation rel;
 	TupleTableSlot *slot = NULL;
 	ScanState *scan;
+	bool should_free = true;
 
 	/* Get next tuple from subplan, if any. */
 lnext:
@@ -241,7 +242,7 @@ lnext:
 	/* this slot contains the physical matrel tuple that was joined on */
 	inner = outer->js.ps.ps_ExprContext->ecxt_innertuple;
 
-	tup = inner->tts_tuple;
+	tup = ExecFetchSlotHeapTuple(inner, true, &should_free);;
 	Assert(inner->tts_tuple);
 
 	scan = (ScanState *) outer->js.ps.righttree;
@@ -254,7 +255,7 @@ lnext:
 
 	switch (res)
 	{
-		case HeapTupleSelfUpdated:
+		case TM_SelfModified:
 			/*
 			 * The target tuple was already updated or deleted by the
 			 * current command, or by a later command in the current
@@ -265,22 +266,23 @@ lnext:
 			elog(ERROR, "tuple updated again in the same transaction");
 			break;
 
-		case HeapTupleMayBeUpdated:
+		case TM_Ok:
 			/* Got the lock successfully! */
 			slot = inner;
 			break;
 
-		case HeapTupleUpdated:
+		case TM_Updated:
+		case TM_Deleted:
 			/* Was tuple deleted? */
 			if (ItemPointerEquals(&hufd.ctid, &tup->t_self))
 				goto lnext;
 
 			/* Tuple was updated, so fetch and lock the updated version */
-			tup = EvalPlanQualFetch(estate, rel, LockTupleExclusive, false, &hufd.ctid, hufd.xmax);
-			if (tup == NULL)
-				goto lnext;
+			//tup = EvalPlanQualFetch(estate, rel, LockTupleExclusive, false, &hufd.ctid, hufd.xmax);
+			//if (tup == NULL)
+			//	goto lnext;
 
-			slot = ExecStoreTuple(tup, node->ss.ps.ps_ResultTupleSlot, InvalidBuffer, true);
+			slot = ExecStoreHeapTuple(tup, node->ss.ps.ps_ResultTupleSlot, true);
 			break;
 
 		default:

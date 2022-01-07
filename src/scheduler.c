@@ -48,6 +48,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "utils/timeout.h"
+#include "common/hashfn.h"
 
 #define MAX_PRIORITY 20 /* XXX(usmanm): can we get this from some sys header? */
 #define NUM_LOCKS_PER_DB NUM_BG_WORKERS_PER_DB
@@ -302,7 +303,7 @@ refresh_database_list(void)
 {
 	List *dbs = NIL;
 	Relation pg_database;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	HeapTuple tup;
 	MemoryContext cxt;
 
@@ -323,8 +324,8 @@ refresh_database_list(void)
 		PushActiveSnapshot(GetTransactionSnapshot());
 
 	/* We take a AccessExclusiveLock so we don't conflict with any DATABASE commands */
-	pg_database = heap_open(DatabaseRelationId, AccessExclusiveLock);
-	scan = heap_beginscan_catalog(pg_database, 0, NULL);
+	pg_database = table_open(DatabaseRelationId, AccessExclusiveLock);
+	scan = table_beginscan_catalog(pg_database, 0, NULL);
 
 	while (HeapTupleIsValid(tup = heap_getnext(scan, ForwardScanDirection)))
 	{
@@ -345,7 +346,7 @@ refresh_database_list(void)
 		old = MemoryContextSwitchTo(cxt);
 
 		db_entry = palloc0(sizeof(DatabaseEntry));
-		db_entry->id = HeapTupleGetOid(tup);
+		db_entry->id = ((Form_pg_database) GETSTRUCT(tup))->oid;
 		namestrcpy(&db_entry->name, NameStr(row->datname));
 
 		dbs = lappend(dbs, db_entry);
@@ -356,7 +357,7 @@ refresh_database_list(void)
 	PopActiveSnapshot();
 
 	heap_endscan(scan);
-	heap_close(pg_database, NoLock);
+	table_close(pg_database, NoLock);
 
 	CommitTransactionCommand();
 

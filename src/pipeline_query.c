@@ -12,7 +12,9 @@
 #include "access/htup.h"
 #include "access/htup_details.h"
 #include "access/reloptions.h"
-#include "access/tuptoaster.h"
+#include "access/detoast.h"
+#include "access/toast_internals.h"
+#include "access/heaptoast.h"
 #include "access/xact.h"
 #include "analyzer.h"
 #include "catalog.h"
@@ -86,14 +88,14 @@ compare_oid(const void *a, const void *b)
 static Oid
 get_next_id(Relation rel)
 {
-	HeapScanDesc scandesc;
+	TableScanDesc scandesc;
 	HeapTuple tup;
 	List *ids_list = NIL;
 	int num_ids;
 
 	Assert(MAX_CQS % 32 == 0);
 
-	scandesc = heap_beginscan_catalog(rel, 0, NULL);
+	scandesc = table_beginscan_catalog(rel, 0, NULL);
 
 	while ((tup = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
 	{
@@ -346,9 +348,9 @@ GetContQueryDef(Oid defrelid)
 	Relation rel;
 	Query *result;
 
-	rel = heap_open(defrelid, NoLock);
+	rel = table_open(defrelid, NoLock);
 	result = copyObject(get_view_query(rel));
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 
 	return result;
 }
@@ -361,7 +363,7 @@ AcquirePipelineDDLLock(void)
 {
 	if (IsBinaryUpgrade)
 		return NULL;
-	return heap_open(GetPipelineQueryOid(), AccessExclusiveLock);
+	return table_open(GetPipelineQueryOid(), AccessExclusiveLock);
 }
 
 /*
@@ -370,7 +372,7 @@ AcquirePipelineDDLLock(void)
 void
 ReleasePipelineDDLLock(PipelineDDLLock lock)
 {
-	heap_close(lock, NoLock);
+	table_close(lock, NoLock);
 }
 
 static void
@@ -521,7 +523,7 @@ StorePipelineQueryReloptions(Oid relid, List *options)
 	bool class_null[Natts_pg_class];
 	bool class_repl[Natts_pg_class];
 
-	pgclass = heap_open(RelationRelationId, RowExclusiveLock);
+	pgclass = table_open(RelationRelationId, RowExclusiveLock);
 	classtup = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
 
 	if (!HeapTupleIsValid(classtup))
@@ -541,7 +543,7 @@ StorePipelineQueryReloptions(Oid relid, List *options)
 	PipelineCatalogTupleUpdate(pgclass, &newtup->t_self, newtup);
 
 	heap_freetuple(newtup);
-	heap_close(pgclass, NoLock);
+	table_close(pgclass, NoLock);
 	ReleaseSysCache(classtup);
 }
 
@@ -870,9 +872,9 @@ create_lookup_index(RangeVar *cv, Oid matrelid, RangeVar *matrel, SelectStmt *se
 	}
 	else
 	{
-		Relation rel = heap_open(matrelid, NoLock);
+		Relation rel = table_open(matrelid, NoLock);
 		expr = make_hashed_index_expr(cv, select, RelationGetDescr(rel));
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 	}
 
 	indexcol = makeNode(IndexElem);
@@ -995,7 +997,7 @@ DefineContTransform(Oid relid, Oid defrelid, Oid streamrelid, Oid typoid, Oid os
 	char *relname;
 	List *options = *optionsp;
 
-	pipeline_query = heap_open(PipelineQueryRelationOid, RowExclusiveLock);
+	pipeline_query = table_open(PipelineQueryRelationOid, RowExclusiveLock);
 
 	id = get_next_id(pipeline_query);
 
@@ -1089,7 +1091,7 @@ DefineContTransform(Oid relid, Oid defrelid, Oid streamrelid, Oid typoid, Oid os
 
 	SyncPipelineStreamReaders();
 
-	heap_close(pipeline_query, NoLock);
+	table_close(pipeline_query, NoLock);
 
 	CommandCounterIncrement();
 
@@ -1366,7 +1368,7 @@ record_ct_dependencies(Oid relid, Oid osrelid, Oid fnoid, Oid defrelid, SelectSt
 	if (fnoid == GetInsertIntoStreamOid())
 	{
 		ListCell *lc;
-		Relation rel = heap_open(relid, AccessShareLock);
+		Relation rel = table_open(relid, AccessShareLock);
 
 		foreach(lc, args)
 		{
@@ -1381,7 +1383,7 @@ record_ct_dependencies(Oid relid, Oid osrelid, Oid fnoid, Oid defrelid, SelectSt
 						errmsg("\"%s\" is not a stream", strVal(v)),
 						errhint("Arguments to pipeline_stream_insert must be streams.")));
 
-			srel = heap_openrv(rv, NoLock);
+			srel = table_openrv(rv, NoLock);
 			desc = CreateTupleDescCopy(RelationGetDescr(srel));
 
 			/* HACK(usmanm): Ignore arrival_timestamp. Should be fixed by #1616. */
@@ -1402,10 +1404,10 @@ record_ct_dependencies(Oid relid, Oid osrelid, Oid fnoid, Oid defrelid, SelectSt
 
 			recordDependencyOn(&dependent, &referenced, DEPENDENCY_NORMAL);
 
-			heap_close(srel, NoLock);
+			table_close(srel, NoLock);
 		}
 
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 	}
 
 	/*
@@ -1686,7 +1688,7 @@ ExecCreateContViewStmt(RangeVar *view, Node *sel, List *options, const char *que
 	if (is_dumped_cv_defrel(options))
 	{
 		create_dumped_cv(pipeline_query, view, querystring, (SelectStmt *) sel, cont_query, options);
-		heap_close(pipeline_query, NoLock);
+		table_close(pipeline_query, NoLock);
 		allowSystemTableMods = saveAllowSystemTableMods;
 		return;
 	}
@@ -1913,7 +1915,7 @@ ExecCreateContViewStmt(RangeVar *view, Node *sel, List *options, const char *que
 	/*
 	 * Create the output stream
 	 */
-	overlayrel = heap_open(overlayid, NoLock);
+	overlayrel = table_open(overlayid, NoLock);
 
 	old = makeNode(ColumnDef);
 	old->colname = OSREL_OLD_ROW;
@@ -1925,13 +1927,13 @@ ExecCreateContViewStmt(RangeVar *view, Node *sel, List *options, const char *que
 	new = copyObject(old);
 	new->colname = OSREL_NEW_ROW;
 
-	heap_close(overlayrel, NoLock);
+	table_close(overlayrel, NoLock);
 
 	delta = NULL;
 	if (!has_sw)
 	{
 		/* Only non-SW output streams have delta tuples */
-		matrel = heap_open(matrelid, NoLock);
+		matrel = table_open(matrelid, NoLock);
 
 		delta = makeNode(ColumnDef);
 		delta->colname = OSREL_DELTA_ROW;
@@ -1940,7 +1942,7 @@ ExecCreateContViewStmt(RangeVar *view, Node *sel, List *options, const char *que
 		delta->typeName->typemod = -1;
 		delta->is_local = true;
 
-		heap_close(matrel, NoLock);
+		table_close(matrel, NoLock);
 	}
 
 	create_osrel = makeNode(CreateForeignTableStmt);
@@ -2044,7 +2046,7 @@ RangeVarIsPipelineObject(RangeVar *name)
 Relation
 OpenPipelineQuery(LOCKMODE mode)
 {
-	return heap_open(GetPipelineQueryOid(), mode);
+	return table_open(GetPipelineQueryOid(), mode);
 }
 
 /*
@@ -2053,7 +2055,7 @@ OpenPipelineQuery(LOCKMODE mode)
 void
 ClosePipelineQuery(Relation rel, LOCKMODE mode)
 {
-	heap_close(rel, mode);
+	table_close(rel, mode);
 }
 
 
@@ -2522,8 +2524,8 @@ RangeVarGetContQuery(RangeVar *name)
 static Bitmapset *
 get_cont_query_ids(char type)
 {
-	Relation pipeline_query = heap_open(PipelineQueryRelationOid, AccessShareLock);
-	HeapScanDesc scan_desc = heap_beginscan_catalog(pipeline_query, 0, NULL);
+	Relation pipeline_query = table_open(PipelineQueryRelationOid, AccessShareLock);
+	TableScanDesc scan_desc = table_beginscan_catalog(pipeline_query, 0, NULL);
 	HeapTuple tup;
 	Bitmapset *result = NULL;
 
@@ -2539,7 +2541,7 @@ get_cont_query_ids(char type)
 	}
 
 	heap_endscan(scan_desc);
-	heap_close(pipeline_query, AccessShareLock);
+	table_close(pipeline_query, AccessShareLock);
 
 	return result;
 }
@@ -2598,13 +2600,13 @@ SyncPipelineQuery(void)
 {
 	HeapTuple tup;
 	Relation pipeline_query;
-	HeapScanDesc scan_desc;
+	TableScanDesc scan_desc;
 
 	if (pg_class_aclcheck(PipelineQueryRelationOid, GetUserId(), ACL_DELETE) != ACLCHECK_OK)
 		return;
 
-	pipeline_query = heap_open(PipelineQueryRelationOid, NoLock);
-	scan_desc = heap_beginscan_catalog(pipeline_query, 0, NULL);
+	pipeline_query = table_open(PipelineQueryRelationOid, NoLock);
+	scan_desc = table_beginscan_catalog(pipeline_query, 0, NULL);
 
 	while ((tup = heap_getnext(scan_desc, ForwardScanDirection)) != NULL)
 	{
@@ -2617,7 +2619,7 @@ SyncPipelineQuery(void)
 	}
 
 	heap_endscan(scan_desc);
-	heap_close(pipeline_query, NoLock);
+	table_close(pipeline_query, NoLock);
 }
 
 /*
@@ -2626,7 +2628,7 @@ SyncPipelineQuery(void)
 bool
 ContQuerySetActive(Oid id, bool active)
 {
-	Relation pipeline_query = heap_open(PipelineQueryRelationOid, RowExclusiveLock);
+	Relation pipeline_query = table_open(PipelineQueryRelationOid, RowExclusiveLock);
 	HeapTuple tup = PipelineCatalogLookupForUpdate(pipeline_query, PIPELINEQUERYID, ObjectIdGetDatum(id));
 	Form_pipeline_query row;
 	bool changed = false;
@@ -2656,7 +2658,7 @@ ContQuerySetActive(Oid id, bool active)
 		changed = true;
 	}
 
-	heap_close(pipeline_query, NoLock);
+	table_close(pipeline_query, NoLock);
 
 	return changed;
 }
@@ -2683,7 +2685,7 @@ void RangeVarGetTTLInfo(RangeVar *cvname, char **ttl_col, int *ttl)
 	Assert(row->ttl > 0);
 	*ttl = row->ttl;
 
-	rel = heap_open(row->matrelid, NoLock);
+	rel = table_open(row->matrelid, NoLock);
 	desc = RelationGetDescr(rel);
 
 	for (i = 0; i < desc->natts; i++)
@@ -2697,7 +2699,7 @@ void RangeVarGetTTLInfo(RangeVar *cvname, char **ttl_col, int *ttl)
 
 	Assert(*ttl_col);
 
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 }
 
 /*
@@ -2961,7 +2963,7 @@ SyncContQueryDefRel(Oid cqrelid)
 	cq_relname = get_rel_name(cqrelid);
 	stream_name = get_qualified_relname(cq->streamrelid);
 
-	pgclass = heap_open(RelationRelationId, RowExclusiveLock);
+	pgclass = table_open(RelationRelationId, RowExclusiveLock);
 	tup = SearchSysCache1(RELOID, ObjectIdGetDatum(cq->defrelid));
 
 	if (!HeapTupleIsValid(tup))
@@ -3052,7 +3054,7 @@ SyncContQueryDefRel(Oid cqrelid)
 
 	pfree(buf.data);
 	heap_freetuple(newtup);
-	heap_close(pgclass, NoLock);
+	table_close(pgclass, NoLock);
 	ReleaseSysCache(tup);
 }
 
@@ -3064,15 +3066,15 @@ SyncStreamReaderDefRels(Oid streamrelid)
 {
 	HeapTuple tup;
 	Relation pipeline_query;
-	HeapScanDesc scan_desc;
+	TableScanDesc scan_desc;
 	ScanKeyData key[1];
 
 	ScanKeyInit(&key[0],
 			Anum_pipeline_query_streamrelid,
 				BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(streamrelid));
 
-	pipeline_query = heap_open(PipelineQueryRelationOid, NoLock);
-	scan_desc = heap_beginscan_catalog(pipeline_query, 1, key);
+	pipeline_query = table_open(PipelineQueryRelationOid, NoLock);
+	scan_desc = table_beginscan_catalog(pipeline_query, 1, key);
 
 	/*
 	 * Find all readers of this stream and update their defrel reloptions to reference the new name
@@ -3084,7 +3086,7 @@ SyncStreamReaderDefRels(Oid streamrelid)
 	}
 
 	heap_endscan(scan_desc);
-	heap_close(pipeline_query, NoLock);
+	table_close(pipeline_query, NoLock);
 }
 
 /*
@@ -3095,10 +3097,10 @@ SyncAllContQueryDefRels(void)
 {
 	HeapTuple tup;
 	Relation pipeline_query;
-	HeapScanDesc scan_desc;
+	TableScanDesc scan_desc;
 
-	pipeline_query = heap_open(PipelineQueryRelationOid, NoLock);
-	scan_desc = heap_beginscan_catalog(pipeline_query, 0, NULL);
+	pipeline_query = table_open(PipelineQueryRelationOid, NoLock);
+	scan_desc = table_beginscan_catalog(pipeline_query, 0, NULL);
 
 	/*
 	 * Find all readers of this stream and update their defrel reloptions to reference the new name
@@ -3110,7 +3112,7 @@ SyncAllContQueryDefRels(void)
 	}
 
 	heap_endscan(scan_desc);
-	heap_close(pipeline_query, NoLock);
+	table_close(pipeline_query, NoLock);
 }
 
 /*

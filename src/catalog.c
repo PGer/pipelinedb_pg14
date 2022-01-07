@@ -21,6 +21,8 @@
 #include "catalog/pg_amop.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_type.h"
+#include "catalog/pg_proc.h"
+#include "common/hashfn.h"
 #include "config.h"
 #include "miscadmin.h"
 #include "pipeline_combine.h"
@@ -151,7 +153,7 @@ static struct CatalogDesc catalogdesc[] = {
 	{PIPELINEDB_NAMESPACE, PIPELINE_STREAM, "pipeline_stream_oid_index", InvalidOid, InvalidOid, NULL,
 		1,
 		{
-			ObjectIdAttributeNumber,
+			Anum_pg_class_oid,
 			0,
 			0,
 			0
@@ -295,7 +297,7 @@ init_catalog_xact(void)
 		if (IsBinaryUpgrade && (!OidIsValid(nsp) || !OidIsValid(relid)))
 			continue;
 
-		rel = heap_open(relid, NoLock);
+		rel = table_open(relid, NoLock);
 
 		/* Cache OIDs while we're here so we don't have to do extraneous lookups after this point */
 		catalogdesc[i].relid = relid;
@@ -306,7 +308,7 @@ init_catalog_xact(void)
 		catalogdesc[i].desc = CreateTupleDescCopyConstr(RelationGetDescr(rel));
 		MemoryContextSwitchTo(old);
 
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 	}
 }
 
@@ -403,7 +405,7 @@ PipelineCatalogTupleInsert(Relation rel, HeapTuple tup)
 
 	Assert(CatalogInitialized);
 
-	result = CatalogTupleInsert(rel, tup);
+	CatalogTupleInsert(rel, tup);
 	CacheInvalidateRelcacheByRelid(RelationGetRelid(rel));
 
 	return result;
@@ -555,9 +557,9 @@ PipelineCatalogLookup(int id, int nkeys, ...)
 	}
 
 	/* Cache miss */
-	rel = heap_open(catalogdesc[id].relid, AccessShareLock);
+	rel = table_open(catalogdesc[id].relid, AccessShareLock);
 	tup = lookup_tuple(rel, id, keys);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	/*
 	 * Note: our lookup may have returned NULL, meaning that no entry was found for the given key.
@@ -635,7 +637,7 @@ lookup_func_oid(char *name, Oid *args, int nargs)
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "function \"%s\" not found", name);
 
-	result = HeapTupleGetOid(tup);
+	result = ((Form_pg_proc) GETSTRUCT(tup))->oid;
 
 	ReleaseSysCache(tup);
 
