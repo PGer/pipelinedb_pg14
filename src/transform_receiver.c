@@ -107,8 +107,8 @@ align_tuple(TransformReceiver *t, HeapTuple tup, TupleTableSlot *slot, TupleDesc
 	int i;
 	int j;
 	TupleDesc event = slot->tts_tupleDescriptor;
-	Datum values[osrel->natts];
-	bool nulls[osrel->natts];
+	Datum *values = malloc(osrel->natts * sizeof(Datum));
+	bool *nulls = malloc(osrel->natts * sizeof(bool));
 
 	/*
 	 * We need to write out rows using the correct ordering of attributes, which is just
