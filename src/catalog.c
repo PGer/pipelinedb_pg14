@@ -514,7 +514,7 @@ PipelineCatalogLookup(int id, int nkeys, ...)
 {
 	va_list valist;
 	int i;
-	Datum keys[nkeys];
+	Datum *keys = malloc(nkeys * sizeof(Datum));
 	PipelineCatalogEntry *entry;
 	bool found;
 	HeapTuple tup;
