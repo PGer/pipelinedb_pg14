@@ -109,8 +109,8 @@ get_next_id(Relation rel)
 
 	if (num_ids)
 	{
-		Oid ids[num_ids];
-		int counts_per_combiner[num_combiners];
+		Oid *ids = malloc(num_ids * sizeof(Oid));
+		int *counts_per_combiner = malloc(num_combiners * sizeof(int));
 		int i = 0;
 		Oid max;
 		ListCell *lc;
