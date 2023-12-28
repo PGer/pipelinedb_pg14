@@ -92,7 +92,7 @@ create_tuplestore_scan_plan(PlannerInfo *root, RelOptInfo *rel, struct CustomPat
 	Relation matrel = table_open(cv->matrelid, NoLock);
 	TupleDesc desc = RelationGetDescr(matrel);
 	AttrNumber attrno;
-	Index groupref[desc->natts];
+	Index *groupref = malloc(desc->natts * sizeof(Index));
 	ListCell *lc;
 	int i = 0;
 	bool physical_tlist = true;
