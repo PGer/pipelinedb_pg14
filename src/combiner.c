@@ -1053,7 +1053,7 @@ tick_sw_groups(ContQueryCombinerState *state, Relation matrel, bool force)
 		bool isnew;
 		Datum values[4];
 		bool nulls[4];
-		bool replaces[state->overlay_desc->natts];
+		bool *replaces = malloc(state->overlay_desc->natts * sizeof(bool));
 		ExecMaterializeSlot(state->overlay_slot);
 		HeapTuple old_tup = NULL;
 		HeapTuple os_tup;
